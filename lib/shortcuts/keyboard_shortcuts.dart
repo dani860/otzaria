@@ -98,13 +98,45 @@ class _KeyboardShortcutsState extends State<KeyboardShortcuts> {
         shortcutSettings['key-shortcut-open-new-search'] ?? 'ctrl+q';
     final settingsShortcut =
         shortcutSettings['key-shortcut-open-settings'] ?? 'ctrl+comma';
-    final moreShortcut = shortcutSettings['key-shortcut-open-more'] ?? 'ctrl+m';
+    final moreShortcut = shortcutSettings['key-shortcut-open-more'] ?? 'ctrl+shift+m';
     final bookmarksShortcut =
         shortcutSettings['key-shortcut-open-bookmarks'] ?? 'ctrl+shift+b';
     final historyShortcut =
         shortcutSettings['key-shortcut-open-history'] ?? 'ctrl+h';
     final workspaceShortcut =
         shortcutSettings['key-shortcut-switch-workspace'] ?? 'ctrl+k';
+<<<<<<< Updated upstream
+=======
+    final toggleNavPaneShortcut =
+        shortcutSettings['key-shortcut-toggle-nav-pane'] ?? 'ctrl+shift+l';
+    final toggleCommentatorsPaneShortcut =
+        shortcutSettings['key-shortcut-toggle-commentators-pane'] ?? 'ctrl+m';
+
+    // חלונית ניווט (שמאל)
+    if (ShortcutHelper.matchesShortcut(event, toggleNavPaneShortcut)) {
+      final tab = context.read<TabsBloc>().state.currentTab;
+      if (tab is TextBookTab) {
+        final state = tab.bloc.state;
+        if (state is TextBookLoaded) {
+          tab.bloc.add(ToggleLeftPane(!state.showLeftPane));
+        }
+      } else if (tab is PdfBookTab) {
+        tab.toggleNavPaneNotifier.value++;
+      }
+      return KeyEventResult.handled;
+    }
+
+    // חלונית מפרשים
+    if (ShortcutHelper.matchesShortcut(event, toggleCommentatorsPaneShortcut)) {
+      final tab = context.read<TabsBloc>().state.currentTab;
+      if (tab is TextBookTab) {
+        tab.toggleCommentatorsPaneNotifier.value++;
+      } else if (tab is PdfBookTab) {
+        tab.toggleCommentatorsPaneNotifier.value++;
+      }
+      return KeyEventResult.handled;
+    }
+>>>>>>> Stashed changes
 
     // ספרייה
     if (ShortcutHelper.matchesShortcut(event, libraryShortcut)) {

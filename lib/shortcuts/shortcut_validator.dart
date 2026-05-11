@@ -57,7 +57,7 @@ class ShortcutValidator {
     'key-shortcut-open-reading-screen': 'ctrl+r',
     'key-shortcut-open-new-search': 'ctrl+q',
     'key-shortcut-open-settings': 'ctrl+comma',
-    'key-shortcut-open-more': 'ctrl+m',
+    'key-shortcut-open-more': 'ctrl+shift+m',
     'key-shortcut-open-bookmarks': 'ctrl+shift+b',
     'key-shortcut-open-history': 'ctrl+h',
     'key-shortcut-add-bookmark': 'ctrl+b',
@@ -71,6 +71,11 @@ class ShortcutValidator {
     'key-shortcut-calendar-create-event': 'ctrl+shift+n',
     'key-shortcut-calendar-toggle-view': 'ctrl+shift+e',
     'key-shortcut-shamor-zachor-cycle-filter': 'ctrl+e',
+<<<<<<< Updated upstream
+=======
+    'key-shortcut-toggle-nav-pane': 'ctrl+shift+l',
+    'key-shortcut-toggle-commentators-pane': 'ctrl+m',
+>>>>>>> Stashed changes
   };
 
   /// Shortcut names for display
