@@ -64,9 +64,17 @@ class NavRailItem extends StatelessWidget {
     this.isTourHighlighted = false,
   });
 
+  // B5 — Diamond Cut: גרדיאנט בהיר 160° + מסגרת כפולה פנימית
+  static const _goldBright = Color(0xFFFFF8C0);   // אייקון/טקסט נבחר (על גרדיאנט כהה)
+  static const _goldMid = Color(0xFF5A3A00);      // אייקון/טקסט רגיל (על רקע בהיר)
+  static const _goldDark = Color(0xFFCCA020);     // hover
+  static const _goldIndicator = Color(0xFF8A6010); // fallback (לא בשימוש כשנבחר)
+
   @override
   Widget build(BuildContext context) {
+    // ignore: unused_local_variable
     final cs = Theme.of(context).colorScheme;
+    final iconColor = isSelected ? _goldBright : _goldMid;
 
     // ── אייקון עם אנימציה regular ↔ filled ──────────────────────────────
     Widget iconWidget = AnimatedSwitcher(
@@ -81,7 +89,7 @@ class NavRailItem extends StatelessWidget {
         isSelected && iconFilled != null ? iconFilled! : icon,
         key: ValueKey<bool>(isSelected),
         size: 24,
-        color: isSelected ? cs.onSecondaryContainer : cs.onSurfaceVariant,
+        color: iconColor,
       ),
     );
 
@@ -110,12 +118,40 @@ class NavRailItem extends StatelessWidget {
                 duration: const Duration(milliseconds: 250),
                 curve: Curves.easeInOutCubicEmphasized,
                 decoration: BoxDecoration(
+                  // B5: נבחר = גרדיאנט 160°, אחר = צבע רגיל
+                  gradient: isSelected
+                      ? const LinearGradient(
+                          begin: Alignment.topRight,
+                          end: Alignment.bottomLeft,
+                          colors: [
+                            Color(0xFFFFFEF0),
+                            Color(0xFFE8C840),
+                            Color(0xFF8A6010),
+                          ],
+                          stops: [0.0, 0.4, 1.0],
+                        )
+                      : null,
                   color: isSelected
-                      ? cs.secondaryContainer
+                      ? null
                       : isTourHighlighted
-                          ? cs.primary.withAlpha((0.08 * 255).round())
+                          ? _goldDark.withAlpha((0.4 * 255).round())
                           : Colors.transparent,
                   borderRadius: BorderRadius.circular(16),
+                  border: isSelected
+                      ? Border.all(
+                          color: const Color(0x99FFFFB4),
+                          width: 1.5,
+                        )
+                      : null,
+                  boxShadow: isSelected
+                      ? const [
+                          BoxShadow(
+                            color: Color(0x4D000000),
+                            blurRadius: 6,
+                            offset: Offset(2, 3),
+                          ),
+                        ]
+                      : null,
                 ),
                 child: IconButton(
                   key: tourTargetKey,
@@ -139,12 +175,12 @@ class NavRailItem extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 color: isSelected
-                    ? cs.onSecondaryContainer
+                    ? _goldBright
                     : isTourHighlighted
-                        ? cs.primary
-                        : cs.onSurfaceVariant,
+                        ? _goldBright
+                        : _goldMid,
                 fontWeight:
-                    isTourHighlighted ? FontWeight.bold : FontWeight.normal,
+                    isSelected || isTourHighlighted ? FontWeight.bold : FontWeight.normal,
               ),
               child: Text(
                 label,

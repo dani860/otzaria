@@ -2033,9 +2033,35 @@ class MainWindowScreenState extends State<MainWindowScreen>
                                   if (orientation == Orientation.landscape) {
                                     return Row(
                                       children: [
-                                        ColoredBox(
-                                          color: AppSurfaces.panelBackground(
-                                            context,
+                                        Container(
+                                          decoration: BoxDecoration(
+                                            // B5 — Diamond Cut 160° + מסגרת כפולה פנימית
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topRight,
+                                              end: Alignment.bottomLeft,
+                                              colors: [
+                                                Color(0xFFFFFEF0), // ברק פינה
+                                                Color(0xFFF8E860), // זהב בהיר
+                                                Color(0xFFC8A020), // זהב ראשי
+                                                Color(0xFF8A6010), // עמוק
+                                                Color(0xFFC8A020), // זהב ראשי
+                                                Color(0xFFF8E860), // זהב בהיר
+                                                Color(0xFFFFFEF0), // ברק פינה
+                                              ],
+                                              stops: [
+                                                0.0,
+                                                0.15,
+                                                0.35,
+                                                0.55,
+                                                0.70,
+                                                0.85,
+                                                1.0,
+                                              ],
+                                            ),
+                                            border: Border.all(
+                                              color: Color(0x99FFFFB4), // מסגרת פנימית בהירה
+                                              width: 2,
+                                            ),
                                           ),
                                           child: SizedBox.fromSize(
                                             size: const Size.fromWidth(74),
@@ -2043,10 +2069,7 @@ class MainWindowScreenState extends State<MainWindowScreen>
                                               children: [
                                                 Expanded(
                                                   child: Material(
-                                                    color: AppSurfaces
-                                                        .panelBackground(
-                                                      context,
-                                                    ),
+                                                    color: Colors.transparent,
                                                     surfaceTintColor:
                                                         Colors.transparent,
                                                     child: BlocBuilder<
