@@ -32,6 +32,13 @@ class TextBookBloc extends Bloc<TextBookEvent, TextBookState> {
   static const String _allTargetBookTitlesSignature =
       '__all_target_book_titles__';
 
+  // cache לתוכן ול-TOC — מונע קריאה כפולה מה-DB כשאותו ספר נפתח בכרטסיית מפרשים
+  static final Map<String, List<String>> _contentLinesCache = {};
+  static final Map<String, List<TocEntry>> _tocCache = {};
+
+  static String _bookCacheKey(TextBook book) =>
+      '${book.title}::${book.categoryId ?? ""}';
+
   final TextBookRepository repository;
   final Future<String?> Function(
     String title,
@@ -57,6 +64,8 @@ class TextBookBloc extends Bloc<TextBookEvent, TextBookState> {
   List<int>? _pendingForceLoadIndices;
   bool _pendingForceLoadAll = false;
   bool _awaitingInitialPageShapeVisibleSync = false;
+  // אינדקסים ממתינים לכרטסיית מפרשים — ייטענו ברגע ש-availableCommentators יהיו מוכנים
+  List<int>? _pendingCommentatorsTabIndices;
 
   TextBookBloc({
     required this.repository,
@@ -248,31 +257,52 @@ class TextBookBloc extends Bloc<TextBookEvent, TextBookState> {
     }
 
     try {
-      final tocFuture = repository.getTableOfContents(book);
+      final cacheKey = _bookCacheKey(book);
 
-      String content = await repository.getBookContent(book);
-      List<String>? contentLines;
-      if (content.isEmpty) {
-        final preview = await _quickPreviewLoader(
-          book.title,
-          visibleIndices.first,
-          categoryId: book.categoryId,
-          fileType: book.fileType,
-        );
+      // אם יש TOC ב-cache — משתמשים בו ישירות במקום לשאול את ה-DB שוב
+      final tocFuture = _tocCache.containsKey(cacheKey)
+          ? Future.value(_tocCache[cacheKey]!)
+          : repository.getTableOfContents(book);
 
-        if (preview != null && preview.isNotEmpty) {
-          final previewStartLine =
-              (visibleIndices.first - 10).clamp(0, visibleIndices.first);
-          contentLines = buildPreviewLines(preview, previewStartLine);
-          _loadFullBookInBackground(book);
-        } else {
-          content = await repository.getBookContent(book);
+      // בדיקת cache לתוכן השורות
+      List<String>? contentLines = _contentLinesCache[cacheKey];
+
+      if (contentLines == null) {
+        String content = await repository.getBookContent(book);
+        bool usingPreview = false;
+        if (content.isEmpty) {
+          final preview = await _quickPreviewLoader(
+            book.title,
+            visibleIndices.first,
+            categoryId: book.categoryId,
+            fileType: book.fileType,
+          );
+
+          if (preview != null && preview.isNotEmpty) {
+            final previewStartLine =
+                (visibleIndices.first - 10).clamp(0, visibleIndices.first);
+            contentLines = buildPreviewLines(preview, previewStartLine);
+            usingPreview = true;
+            _loadFullBookInBackground(book);
+          } else {
+            content = await repository.getBookContent(book);
+          }
+        }
+
+        contentLines ??= await splitContentLines(content);
+
+        // שמירה ב-cache — רק תוכן מלא (לא preview חלקי)
+        if (!usingPreview && contentLines.isNotEmpty) {
+          _contentLinesCache[cacheKey] = contentLines;
         }
       }
 
-      contentLines ??= await splitContentLines(content);
-
       final tableOfContents = await tocFuture;
+
+      // שמירת TOC ב-cache לשימוש עתידי
+      if (!_tocCache.containsKey(cacheKey) && tableOfContents.isNotEmpty) {
+        _tocCache[cacheKey] = tableOfContents;
+      }
 
       String? currentTitle;
       if (visibleIndices.isNotEmpty) {
@@ -1017,6 +1047,12 @@ class TextBookBloc extends Bloc<TextBookEvent, TextBookState> {
       return;
     }
 
+    // עדכון cache עם התוכן המלא (מחליף preview חלקי אם היה)
+    final cacheKey = _bookCacheKey(currentState.book);
+    if (event.content.isNotEmpty) {
+      _contentLinesCache[cacheKey] = event.content;
+    }
+
     emit(currentState.copyWith(content: event.content));
   }
 
@@ -1261,6 +1297,18 @@ class TextBookBloc extends Bloc<TextBookEvent, TextBookState> {
       if (updatedState.showPageShapeView) {
         _loadLinksInBackground(updatedState.book, updatedState.visibleIndices);
       }
+
+      // אם כרטסיית המפרשים ביקשה טעינה לפני שהמפרשים היו מוכנים — טוען עכשיו עם פילטר
+      final pendingIndices = _pendingCommentatorsTabIndices;
+      if (pendingIndices != null && event.availableCommentators.isNotEmpty) {
+        _pendingCommentatorsTabIndices = null;
+        _loadLinksInBackground(
+          updatedState.book,
+          pendingIndices,
+          force: true,
+          targetBookTitlesOverride: event.availableCommentators,
+        );
+      }
     }
   }
 
@@ -1286,12 +1334,20 @@ class TextBookBloc extends Bloc<TextBookEvent, TextBookState> {
   ) {
     if (state is! TextBookLoaded) return;
     final currentState = state as TextBookLoaded;
-    _loadLinksInBackground(
-      currentState.book,
-      event.indices,
-      force: true,
-      forceLoadAll: true,
-    );
+
+    if (currentState.availableCommentators.isNotEmpty) {
+      // מפרשים ידועים — טוען עם forceLoadAll כדי שאינדקסים ממתינים יישמרו נכון
+      // (מונע race condition שבו pendingLinksReload מחליף links עם visibleIndices שגויים)
+      _loadLinksInBackground(
+        currentState.book,
+        event.indices,
+        force: true,
+        forceLoadAll: true,
+      );
+    } else {
+      // מפרשים עדיין נטענים — שומר ומחכה ל-UpdateAvailableCommentators
+      _pendingCommentatorsTabIndices = List<int>.of(event.indices);
+    }
   }
 
   void _loadCommentatorsInBackground(TextBook book) async {

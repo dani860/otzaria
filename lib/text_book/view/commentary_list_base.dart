@@ -28,6 +28,19 @@ import 'package:otzaria/services/commentary_service.dart';
 // Type alias לתאימות לאחור - משתמש ב-LinkGroup מה-Service
 typedef CommentaryGroup = LinkGroup;
 
+/// מייצג תוצאת חיפוש בודדת עם קטע טקסט וכתובת גלובלית לניווט
+class CommentarySearchSnippet {
+  final String path;
+  final String snippet;
+  final int globalIndex;
+
+  const CommentarySearchSnippet({
+    required this.path,
+    required this.snippet,
+    required this.globalIndex,
+  });
+}
+
 class CommentaryListBase extends StatefulWidget {
   final Function(TextBookTab) openBookCallback;
   final double fontSize;
@@ -46,6 +59,10 @@ class CommentaryListBase extends StatefulWidget {
   final TextEditingController? externalSearchController;
   final ValueNotifier<int>? externalCurrentIndexNotifier;
   final ValueNotifier<int>? externalTotalResultsNotifier;
+  /// מפה חיצונית: path של מפרש → מספר תוצאות חיפוש בו (ריק אם אין חיפוש)
+  final ValueNotifier<Map<String, int>>? externalSearchResultsByPathNotifier;
+  /// רשימת קטעי חיפוש חיצונית עם מידע לניווט (ריקה אם אין חיפוש)
+  final ValueNotifier<List<CommentarySearchSnippet>>? externalSearchSnippetsNotifier;
   /// כשהדגל מופעל, ישתמש ב-availableCommentators (כל מפרשי הספר) ולא ב-activeCommentators
   final bool useAvailableCommentators;
 
@@ -67,6 +84,8 @@ class CommentaryListBase extends StatefulWidget {
     this.externalSearchController,
     this.externalCurrentIndexNotifier,
     this.externalTotalResultsNotifier,
+    this.externalSearchResultsByPathNotifier,
+    this.externalSearchSnippetsNotifier,
     this.useAvailableCommentators = false,
   });
 
@@ -95,6 +114,10 @@ class CommentaryListBaseState extends State<CommentaryListBase> {
   // Anti-jitter search stats
   Timer? _searchUpdateDebounce;
   final Map<String, int> _pendingCounts = {};
+  // מפה: link key → path2 (לצורך קיבוץ תוצאות לפי מפרש)
+  final Map<String, String> _linkKeyToPath = {};
+  // מפה: link key → קטעי טקסט (snippets) לתוצאות החיפוש
+  final Map<String, List<String>> _searchSnippetsPerLink = {};
 
   final ValueNotifier<String?> _savedSelectedText =
       ValueNotifier<String?>(null); // טקסט נבחר לתפריט הקשר
@@ -191,6 +214,13 @@ class CommentaryListBaseState extends State<CommentaryListBase> {
   ValueNotifier<int> get totalSearchResultsNotifier => _totalSearchResultsNotifier;
   ValueNotifier<int> get currentSearchIndexNotifier => _currentSearchIndexNotifier;
 
+  /// ניווט לתוצאת חיפוש לפי אינדקס גלובלי (לשימוש חיצוני)
+  void navigateToGlobalIndex(int index) {
+    if (index < 0 || index >= _totalSearchResultsNotifier.value) return;
+    _currentSearchIndexNotifier.value = index;
+    _scrollToSearchResult();
+  }
+
   void _onExternalSearchChanged() {
     final text = widget.externalSearchController!.text;
     if (_searchQueryNotifier.value != text) {
@@ -199,6 +229,10 @@ class CommentaryListBaseState extends State<CommentaryListBase> {
       _totalSearchResultsNotifier.value = 0;
       _searchResultsPerLink.clear();
       _pendingCounts.clear();
+      _linkKeyToPath.clear();
+      _searchSnippetsPerLink.clear();
+      widget.externalSearchResultsByPathNotifier?.value = {};
+      widget.externalSearchSnippetsNotifier?.value = [];
     }
   }
 
@@ -436,6 +470,8 @@ class CommentaryListBaseState extends State<CommentaryListBase> {
     if (!mounted) return;
 
     final key = _getLinkKey(link);
+    // שמור את ה-path2 לצורך קיבוץ לפי מפרש
+    _linkKeyToPath[key] = link.path2;
     // אם הכמות לא השתנתה, אין צורך לעשות כלום
     if (_searchResultsPerLink[key] == count) return;
 
@@ -452,6 +488,21 @@ class CommentaryListBaseState extends State<CommentaryListBase> {
       _totalSearchResultsNotifier.value =
           _searchResultsPerLink.values.fold(0, (sum, count) => sum + count);
 
+      // עדכון נוטיפייר חיצוני לתוצאות לפי מפרש
+      if (widget.externalSearchResultsByPathNotifier != null) {
+        final byPath = <String, int>{};
+        for (final entry in _searchResultsPerLink.entries) {
+          final path = _linkKeyToPath[entry.key] ?? '';
+          if (path.isNotEmpty && entry.value > 0) {
+            byPath[path] = (byPath[path] ?? 0) + entry.value;
+          }
+        }
+        widget.externalSearchResultsByPathNotifier!.value = byPath;
+      }
+
+      // עדכון נוטיפייר קטעי החיפוש (snippets)
+      _rebuildSnippetsNotifier();
+
       // תיקון אינדקס אם חרגנו מהגבולות
       if (_currentSearchIndexNotifier.value >=
               _totalSearchResultsNotifier.value &&
@@ -459,6 +510,33 @@ class CommentaryListBaseState extends State<CommentaryListBase> {
         _currentSearchIndexNotifier.value = 0;
       }
     });
+  }
+
+  void _updateSearchSnippets(Link link, List<String> snippets) {
+    if (!mounted) return;
+    final key = _getLinkKey(link);
+    _searchSnippetsPerLink[key] = snippets;
+    _rebuildSnippetsNotifier();
+  }
+
+  void _rebuildSnippetsNotifier() {
+    if (widget.externalSearchSnippetsNotifier == null) return;
+    final List<CommentarySearchSnippet> result = [];
+    int globalIndex = 0;
+    for (final link in _orderedLinks) {
+      final key = _getLinkKey(link);
+      final count = _searchResultsPerLink[key] ?? 0;
+      final snippets = _searchSnippetsPerLink[key] ?? [];
+      for (int i = 0; i < snippets.length; i++) {
+        result.add(CommentarySearchSnippet(
+          path: link.path2,
+          snippet: snippets[i],
+          globalIndex: globalIndex,
+        ));
+      }
+      globalIndex += count;
+    }
+    widget.externalSearchSnippetsNotifier!.value = result;
   }
 
   void _updateGlobalExpansionState() {
@@ -507,6 +585,9 @@ class CommentaryListBaseState extends State<CommentaryListBase> {
       totalSearchResultsListenable: _totalSearchResultsNotifier,
       getItemSearchIndex: _getItemSearchIndex,
       updateSearchResultsCount: _updateSearchResultsCount,
+      updateSearchSnippets: widget.externalSearchSnippetsNotifier != null
+          ? _updateSearchSnippets
+          : null,
       itemKeys: _itemKeys,
       getLinkKey: _getLinkKey,
       indexesKey: indexesKey,
@@ -564,12 +645,17 @@ class CommentaryListBaseState extends State<CommentaryListBase> {
 
           if (shouldAutoOpenOverrideFilter) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) {
-                setState(() {
-                  _showCommentatorsFilter = true;
-                  _filterWasAutoOpened = true;
-                });
+              if (!mounted || _showCommentatorsFilter) return;
+              // בדיקה מחדש: אם המפרשים הזמינים כבר נטענו מאז תזמון הקריאה, לא פותחים את הסינון
+              final currentBlocState = context.read<TextBookBloc>().state;
+              if (currentBlocState is TextBookLoaded) {
+                final currentSelected = _selectedCommentators(currentBlocState);
+                if (currentSelected.isNotEmpty) return;
               }
+              setState(() {
+                _showCommentatorsFilter = true;
+                _filterWasAutoOpened = true;
+              });
             });
             return const Center(child: CircularProgressIndicator());
           }
@@ -1155,6 +1241,7 @@ class _CollapsibleCommentaryGroup extends StatefulWidget {
   final ValueListenable<int> totalSearchResultsListenable;
   final int Function(Link) getItemSearchIndex;
   final void Function(Link, int) updateSearchResultsCount;
+  final void Function(Link, List<String>)? updateSearchSnippets;
   final Map<String, GlobalKey> itemKeys;
   final String Function(Link) getLinkKey;
   final String indexesKey;
@@ -1178,6 +1265,7 @@ class _CollapsibleCommentaryGroup extends StatefulWidget {
     required this.totalSearchResultsListenable,
     required this.getItemSearchIndex,
     required this.updateSearchResultsCount,
+    this.updateSearchSnippets,
     required this.itemKeys,
     required this.getLinkKey,
     required this.indexesKey,
@@ -1365,6 +1453,11 @@ class _CollapsibleCommentaryGroupState
                                         count,
                                       )
                                   : null,
+                              onSearchSnippetsChanged: widget.showSearch &&
+                                      widget.updateSearchSnippets != null
+                                  ? (snippets) =>
+                                      widget.updateSearchSnippets!(link, snippets)
+                                  : null,
                             ),
                           );
                         },
@@ -1376,6 +1469,40 @@ class _CollapsibleCommentaryGroupState
               ),
             );
           }),
+        // בנייה סמויה לחיפוש גם כאשר הקבוצה מכווצת
+        if (!_isExpanded && widget.showSearch)
+          ValueListenableBuilder<String>(
+            valueListenable: widget.searchQueryListenable,
+            builder: (context, searchQuery, _) {
+              if (searchQuery.isEmpty) return const SizedBox.shrink();
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: widget.group.links.map((link) {
+                  return Offstage(
+                    offstage: true,
+                    child: CommentaryContent(
+                      key: ValueKey(
+                          'hidden_${link.index1}_${link.path2}_${link.index2}'),
+                      link: link,
+                      fontSize: widget.fontSize,
+                      openBookCallback: widget.openBookCallback,
+                      removeNikud: widget.removeNikud,
+                      removePunctuation: widget.removePunctuation,
+                      searchQuery: searchQuery,
+                      currentSearchIndex: 0,
+                      onSearchResultsCountChanged: (count) =>
+                          widget.updateSearchResultsCount(link, count),
+                      onSearchSnippetsChanged:
+                          widget.updateSearchSnippets != null
+                              ? (snippets) =>
+                                  widget.updateSearchSnippets!(link, snippets)
+                              : null,
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
         const Divider(height: 1),
       ],
     );
